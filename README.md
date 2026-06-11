@@ -458,4 +458,3 @@ train_both_sides
 ```
 
 The live training UI table also displays the current opponent mode for each run.
-.
