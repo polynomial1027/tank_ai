@@ -341,3 +341,62 @@ python -m tank_ai.src.train_cnn_dqn \
 ```
 
 The graphical training UI also contains CSV and plot output fields, plus buttons to export existing CSV or PNG files.
+
+---
+
+## Training UI: live progress and parallel training
+
+Start the training UI:
+
+```bash
+python run_training_ui.py
+```
+
+The training UI now shows a live progress table for every active run:
+
+```text
+Run
+Status
+Episode
+Reward
+Score
+Total reward
+Winner
+HP
+Steps
+Avg100
+Loss
+Epsilon
+Episode time
+```
+
+The raw terminal output is also shown in a separate tab for each run.
+
+### Parallel training windows
+
+The `Parallel training windows` option can be set to:
+
+```text
+1
+2
+4
+```
+
+This launches 1, 2, or 4 independent training processes at the same time. On a stronger computer, this lets you run multiple experiments simultaneously.
+
+If `Render every` is greater than 0, each process may open its own pygame render window. For maximum speed, use:
+
+```text
+Render every = 0
+```
+
+When running multiple training processes, the UI automatically adds suffixes to output files:
+
+```text
+cnn_balanced_latest_run1.pth
+cnn_balanced_latest_run2.pth
+cnn_balanced_latest_run3.pth
+cnn_balanced_latest_run4.pth
+```
+
+The same suffix rule applies to CSV and PNG export paths.
