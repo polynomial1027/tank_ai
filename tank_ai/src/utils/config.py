@@ -15,6 +15,7 @@ class TankGameConfig:
     bullet_max_life: int = 30
     tank_max_health: int = 3
     reward_mode: str = "balanced"
+    map_path: str | None = None
 
 
 @dataclass

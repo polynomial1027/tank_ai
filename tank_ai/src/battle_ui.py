@@ -26,6 +26,7 @@ class BattleUI(tk.Tk):
         self.right_model = tk.StringVar(value="")
         self.reward = tk.StringVar(value="balanced")
         self.speed = tk.StringVar(value="20")
+        self.map_path = tk.StringVar(value="")
         row = 0
         ttk.Label(frame, text="Left player").grid(row=row, column=0, sticky="w", pady=4)
         ttk.Combobox(frame, textvariable=self.left, values=CONTROLLERS, state="readonly").grid(row=row, column=1, sticky="w")
@@ -47,6 +48,10 @@ class BattleUI(tk.Tk):
         ttk.Label(frame, text="Speed").grid(row=row, column=0, sticky="w", pady=4)
         ttk.Entry(frame, textvariable=self.speed, width=20).grid(row=row, column=1, sticky="w")
         row += 1
+        ttk.Label(frame, text="Map file").grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Entry(frame, textvariable=self.map_path, width=60).grid(row=row, column=1, sticky="w")
+        ttk.Button(frame, text="Browse", command=lambda: self._browse_map()).grid(row=row, column=2, padx=4)
+        row += 1
         ttk.Button(frame, text="Start battle", command=self.start_battle).grid(row=row, column=0, pady=12)
         ttk.Button(frame, text="Stop", command=self.stop_battle).grid(row=row, column=1, sticky="w", pady=12)
         row += 1
@@ -56,6 +61,11 @@ class BattleUI(tk.Tk):
         path = filedialog.askopenfilename(filetypes=[("PyTorch checkpoint", "*.pth"), ("All files", "*.*")])
         if path:
             var.set(path)
+
+    def _browse_map(self) -> None:
+        path = filedialog.askopenfilename(filetypes=[("Tank map JSON", "*.json"), ("All files", "*.*")])
+        if path:
+            self.map_path.set(path)
 
     def start_battle(self) -> None:
         if self.process is not None and self.process.poll() is None:
@@ -71,6 +81,8 @@ class BattleUI(tk.Tk):
             cmd.extend(["--left-model", self.left_model.get().strip()])
         if self.right_model.get().strip():
             cmd.extend(["--right-model", self.right_model.get().strip()])
+        if self.map_path.get().strip():
+            cmd.extend(["--map", self.map_path.get().strip()])
         self.process = subprocess.Popen(cmd)
 
     def stop_battle(self) -> None:

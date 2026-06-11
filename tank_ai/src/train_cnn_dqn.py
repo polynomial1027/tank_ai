@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from collections import deque
 
 import numpy as np
@@ -24,12 +23,23 @@ def train_cnn_dqn(
     checkpoint_path: str,
     resume_path: str | None = None,
     speed: int | None = None,
+    map_path: str | None = None,
+    csv_path: str | None = None,
+    plot_path: str | None = None,
 ) -> None:
-    game_cfg = TankGameConfig(reward_mode=reward_mode)
+    game_cfg = TankGameConfig(reward_mode=reward_mode, map_path=map_path)
     if speed is not None:
         game_cfg.speed = speed
+
     dqn_cfg = CNNDQNConfig()
-    probe_env = TankEnv(render_mode=False, reward_mode=reward_mode)
+    probe_env = TankEnv(
+        width=game_cfg.width,
+        height=game_cfg.height,
+        block_size=game_cfg.block_size,
+        render_mode=False,
+        reward_mode=reward_mode,
+        map_path=map_path,
+    )
     rows, cols = probe_env.rows, probe_env.cols
     probe_env.close()
 
@@ -48,23 +58,26 @@ def train_cnn_dqn(
         target_update_every=dqn_cfg.target_update_every,
     )
     opponent = RandomAgent(action_size=dqn_cfg.output_size)
+
     if resume_path:
         agent.load(resume_path)
         print(f"Loaded checkpoint: {resume_path}")
 
     scores_window = deque(maxlen=100)
-    rows_log = []
-    scores = []
-    avg_scores = []
-    losses = []
+    rows_log: list[dict] = []
+    scores: list[float] = []
+    avg_scores: list[float] = []
+    losses: list[float] = []
     record_score = -10**9
     timer = TrainingTimer()
 
     print("CNN-DQN tank training started")
     print(f"Device: {agent.device}")
     print(f"Reward mode: {reward_mode}")
+    print(f"Map: {map_path or 'random generated map'}")
+    print(f"Grid: rows={rows}, cols={cols}")
     print(f"Episodes: {episodes}")
-    print("-" * 80)
+    print("-" * 100)
 
     env = None
     for ep in range(1, episodes + 1):
@@ -82,6 +95,7 @@ def train_cnn_dqn(
             bullet_max_life=game_cfg.bullet_max_life,
             tank_max_health=game_cfg.tank_max_health,
             reward_mode=reward_mode,
+            map_path=map_path,
         )
         env.reset()
         state = env.get_state(player_id=1)
@@ -89,11 +103,14 @@ def train_cnn_dqn(
         total_reward = 0.0
         ep_losses = []
         timer.start_episode()
+        last_info = {}
+
         while not done:
             action = agent.get_action(state, training=True)
             enemy_state = env.get_state(player_id=2)
             enemy_action = opponent.get_action(enemy_state)
             reward, _, done, info = env.step(action, enemy_action)
+            last_info = info
             next_state = env.get_state(player_id=1)
             agent.remember(state, action, reward, next_state, done)
             loss = agent.train_step()
@@ -101,13 +118,18 @@ def train_cnn_dqn(
                 ep_losses.append(loss)
             total_reward += reward
             state = next_state
+
         agent.end_episode()
-        winner = info.get("winner")
+        winner = last_info.get("winner")
         score = env.tanks[1].health - env.tanks[2].health
         if winner == 1:
             score += 10
         elif winner == 2:
             score -= 10
+
+        events = last_info.get("events", {})
+        p1_events = events.get(1, {})
+
         scores_window.append(score)
         record_score = max(record_score, score)
         avg_score = float(np.mean(scores_window))
@@ -116,38 +138,56 @@ def train_cnn_dqn(
         scores.append(score)
         avg_scores.append(avg_score)
         losses.append(avg_loss)
+
         row = {
             "episode": ep,
             "score": score,
             "total_reward": total_reward,
             "winner": winner,
-            "p1_health": info.get("p1_health"),
-            "p2_health": info.get("p2_health"),
+            "p1_health": last_info.get("p1_health"),
+            "p2_health": last_info.get("p2_health"),
+            "steps": last_info.get("step_count"),
+            "hit_enemy": p1_events.get("hit_enemy", False),
+            "got_hit": p1_events.get("got_hit", False),
+            "wall_bump": p1_events.get("wall_bump", False),
+            "fired": p1_events.get("fired", False),
+            "timeout": p1_events.get("timeout", False),
             "record": record_score,
             "avg100": avg_score,
             "loss": avg_loss,
             "epsilon": agent.epsilon,
             "reward_mode": reward_mode,
+            "map_path": map_path or "random",
             "episode_time": timing.elapsed_seconds,
             "total_time": timing.total_elapsed_seconds,
+            "training_steps": agent.training_steps,
         }
         rows_log.append(row)
+
         print(
-            f"Ep {ep:4d} | score {score:4.1f} | winner {winner} | "
-            f"avg100 {avg_score:6.2f} | loss {avg_loss:8.5f} | eps {agent.epsilon:6.3f} | "
-            f"time {timing.elapsed_seconds:6.2f}s"
+            f"Ep {ep:4d} | score {score:5.1f} | reward {total_reward:8.2f} | "
+            f"winner {str(winner):>4s} | HP {last_info.get('p1_health')}-{last_info.get('p2_health')} | "
+            f"steps {last_info.get('step_count'):4d} | avg100 {avg_score:6.2f} | "
+            f"loss {avg_loss:8.5f} | eps {agent.epsilon:6.3f} | "
+            f"hit {p1_events.get('hit_enemy', False)} | got_hit {p1_events.get('got_hit', False)} | "
+            f"wall {p1_events.get('wall_bump', False)} | time {timing.elapsed_seconds:6.2f}s"
         )
+
         if save_every > 0 and ep % save_every == 0:
             agent.save(checkpoint_path)
             print(f"Saved checkpoint: {checkpoint_path}")
+
     if env is not None:
         env.close()
+
     agent.save(checkpoint_path)
     run_name = os.path.splitext(os.path.basename(checkpoint_path))[0]
-    csv_path = f"tank_ai/runs/{run_name}_training.csv"
-    plot_path = f"tank_ai/runs/{run_name}_training.png"
+    csv_path = csv_path or f"tank_ai/runs/{run_name}_training.csv"
+    plot_path = plot_path or f"tank_ai/runs/{run_name}_training.png"
+
     save_training_log_csv(csv_path, rows_log)
     plot_training_summary(scores, avg_scores, losses, plot_path, f"Tank CNN-DQN ({reward_mode})")
+
     print(f"Final checkpoint saved: {checkpoint_path}")
     print(f"Training CSV saved: {csv_path}")
     print(f"Training plot saved: {plot_path}")
@@ -162,6 +202,9 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=str, default="tank_ai/checkpoints/cnn_balanced_latest.pth")
     parser.add_argument("--resume", type=str, default=None)
     parser.add_argument("--speed", type=int, default=None)
+    parser.add_argument("--map", type=str, default=None, help="Optional JSON map path.")
+    parser.add_argument("--csv", type=str, default=None, help="Optional CSV output path.")
+    parser.add_argument("--plot", type=str, default=None, help="Optional PNG plot output path.")
     args = parser.parse_args()
     train_cnn_dqn(
         episodes=args.episodes,
@@ -171,6 +214,9 @@ def main() -> None:
         checkpoint_path=args.checkpoint,
         resume_path=args.resume,
         speed=args.speed,
+        map_path=args.map,
+        csv_path=args.csv,
+        plot_path=args.plot,
     )
 
 

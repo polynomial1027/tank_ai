@@ -66,9 +66,9 @@ def make_controller(kind: str, model_path: str | None, rows: int, cols: int):
     raise ValueError(f"Unknown controller: {kind}")
 
 
-def run_match(left: str, right: str, left_model: str | None, right_model: str | None, reward: str = "balanced", speed: int = 20) -> None:
-    cfg = TankGameConfig(speed=speed, reward_mode=reward)
-    env = TankEnv(width=cfg.width, height=cfg.height, block_size=cfg.block_size, speed=cfg.speed, render_mode=True, reward_mode=reward)
+def run_match(left: str, right: str, left_model: str | None, right_model: str | None, reward: str = "balanced", speed: int = 20, map_path: str | None = None) -> None:
+    cfg = TankGameConfig(speed=speed, reward_mode=reward, map_path=map_path)
+    env = TankEnv(width=cfg.width, height=cfg.height, block_size=cfg.block_size, speed=cfg.speed, render_mode=True, reward_mode=reward, map_path=map_path)
     p1 = make_controller(left, left_model, env.rows, env.cols)
     p2 = make_controller(right, right_model, env.rows, env.cols)
     print("Tank match started. ESC to quit.")
@@ -102,8 +102,9 @@ def main() -> None:
     parser.add_argument("--right-model", default=None)
     parser.add_argument("--reward", default="balanced")
     parser.add_argument("--speed", type=int, default=20)
+    parser.add_argument("--map", type=str, default=None, help="Optional JSON map path.")
     args = parser.parse_args()
-    run_match(args.left, args.right, args.left_model, args.right_model, args.reward, args.speed)
+    run_match(args.left, args.right, args.left_model, args.right_model, args.reward, args.speed, args.map)
 
 
 if __name__ == "__main__":
