@@ -400,3 +400,61 @@ cnn_balanced_latest_run4.pth
 ```
 
 The same suffix rule applies to CSV and PNG export paths.
+
+## Training opponent modes
+
+The training UI and command-line trainer now support three opponent modes:
+
+```text
+random     Train against a random-action tank. This is the easiest baseline.
+model      Train against a fixed checkpoint selected from a .pth file.
+self_play  Train against the current model itself.
+```
+
+In the graphical UI, open:
+
+```bash
+python run_training_ui.py
+```
+
+Then set **Training opponent** to one of:
+
+```text
+random
+model
+self_play
+```
+
+If you choose `model`, use **Opponent model** to select the `.pth` checkpoint for player 2.
+
+For self-play, the checkbox **Self-play: train from both player perspectives** controls whether player 2 experiences are also added to the replay buffer. Keeping it enabled usually gives the model more data.
+
+Command-line examples:
+
+```bash
+python -m tank_ai.src.train_cnn_dqn --episodes 500 --opponent random --reward balanced --checkpoint tank_ai/checkpoints/cnn_vs_random.pth
+```
+
+```bash
+python -m tank_ai.src.train_cnn_dqn --episodes 500 --opponent model --opponent-model tank_ai/checkpoints/old_model.pth --reward balanced --checkpoint tank_ai/checkpoints/cnn_vs_model.pth
+```
+
+```bash
+python -m tank_ai.src.train_cnn_dqn --episodes 500 --opponent self_play --reward balanced --checkpoint tank_ai/checkpoints/cnn_self_play.pth
+```
+
+To self-play but only train from player 1's perspective:
+
+```bash
+python -m tank_ai.src.train_cnn_dqn --episodes 500 --opponent self_play --no-train-both-sides --reward balanced --checkpoint tank_ai/checkpoints/cnn_self_play_p1_only.pth
+```
+
+Training CSV files now include:
+
+```text
+opponent_type
+opponent_model
+train_both_sides
+```
+
+The live training UI table also displays the current opponent mode for each run.

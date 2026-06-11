@@ -15,7 +15,8 @@ from tank_ai.src.rewards.reward_functions import get_available_reward_modes
 
 EPISODE_LINE_RE = re.compile(
     r"Ep\s+(?P<episode>\d+)\s+\|\s+score\s+(?P<score>-?\d+(?:\.\d+)?)\s+\|\s+"
-    r"reward\s+(?P<total_reward>-?\d+(?:\.\d+)?)\s+\|\s+winner\s+(?P<winner>\S+)\s+\|\s+"
+    r"reward\s+(?P<total_reward>-?\d+(?:\.\d+)?)\s+\|\s+"
+    r"opponent\s+(?P<opponent>\S+)\s+\|\s+winner\s+(?P<winner>\S+)\s+\|\s+"
     r"HP\s+(?P<p1_hp>[^-\s]+)-(?P<p2_hp>[^\s]+)\s+\|\s+steps\s+(?P<steps>\d+)\s+\|\s+"
     r"avg100\s+(?P<avg100>-?\d+(?:\.\d+)?)\s+\|\s+loss\s+(?P<loss>-?\d+(?:\.\d+)?)\s+\|\s+"
     r"eps\s+(?P<epsilon>\d+(?:\.\d+)?)\s+\|.*time\s+(?P<episode_time>\d+(?:\.\d+)?)s"
@@ -29,6 +30,7 @@ class TrainingUI(tk.Tk):
     Features:
         - Custom training parameters
         - Reward selection
+        - Opponent selection: random, fixed model, or self-play
         - Custom map selection
         - CSV / plot export paths
         - Live per-run progress table
@@ -39,7 +41,7 @@ class TrainingUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Tank AI CNN-DQN Training UI")
-        self.geometry("1180x820")
+        self.geometry("1280x860")
         self.processes: Dict[int, subprocess.Popen] = {}
         self.output_widgets: Dict[int, tk.Text] = {}
         self._build()
@@ -53,6 +55,9 @@ class TrainingUI(tk.Tk):
         self.save_every = tk.StringVar(value="50")
         self.speed = tk.StringVar(value="30")
         self.reward = tk.StringVar(value="balanced")
+        self.opponent = tk.StringVar(value="random")
+        self.opponent_model = tk.StringVar(value="")
+        self.train_both_sides = tk.BooleanVar(value=True)
         self.parallel_runs = tk.StringVar(value="1")
         self.checkpoint = tk.StringVar(value="tank_ai/checkpoints/cnn_balanced_latest.pth")
         self.resume = tk.StringVar(value="")
@@ -75,6 +80,18 @@ class TrainingUI(tk.Tk):
         add_row(row, "Save every", ttk.Entry(settings, textvariable=self.save_every, width=18)); row += 1
         add_row(row, "Render speed", ttk.Entry(settings, textvariable=self.speed, width=18)); row += 1
         add_row(row, "Reward mode", ttk.Combobox(settings, textvariable=self.reward, values=get_available_reward_modes(), state="readonly", width=18)); row += 1
+        add_row(row, "Training opponent", ttk.Combobox(settings, textvariable=self.opponent, values=["random", "model", "self_play"], state="readonly", width=18)); row += 1
+        add_row(
+            row,
+            "Opponent model",
+            ttk.Entry(settings, textvariable=self.opponent_model, width=80),
+            ttk.Button(settings, text="Browse", command=self._browse_opponent_model),
+        ); row += 1
+        ttk.Checkbutton(
+            settings,
+            text="Self-play: train from both player perspectives",
+            variable=self.train_both_sides,
+        ).grid(row=row, column=1, sticky="w", pady=4); row += 1
         add_row(row, "Parallel training windows", ttk.Combobox(settings, textvariable=self.parallel_runs, values=["1", "2", "4"], state="readonly", width=18)); row += 1
 
         add_row(
@@ -111,11 +128,11 @@ class TrainingUI(tk.Tk):
         settings.columnconfigure(1, weight=1)
 
         help_text = (
-            "Parallel training windows launches 1, 2, or 4 independent training processes. "
-            "If Render every is greater than 0, each process may open its own pygame render window. "
+            "Opponent modes: random = train against random tank; model = train against a fixed selected checkpoint; "
+            "self_play = both sides use the current training model. Parallel training launches independent processes. "
             "For fast training, keep Render every = 0."
         )
-        ttk.Label(root, text=help_text, foreground="#555555").pack(fill="x", pady=(6, 0))
+        ttk.Label(root, text=help_text, foreground="#555555", wraplength=1180).pack(fill="x", pady=(6, 0))
 
         btns = ttk.Frame(root)
         btns.pack(fill="x", pady=8)
@@ -128,7 +145,7 @@ class TrainingUI(tk.Tk):
         progress_frame.pack(fill="x", pady=(0, 8))
 
         columns = (
-            "run", "status", "episode", "reward_mode", "score", "total_reward",
+            "run", "status", "episode", "reward_mode", "opponent", "score", "total_reward",
             "winner", "hp", "steps", "avg100", "loss", "epsilon", "episode_time"
         )
         self.progress = ttk.Treeview(progress_frame, columns=columns, show="headings", height=6)
@@ -137,6 +154,7 @@ class TrainingUI(tk.Tk):
             "status": "Status",
             "episode": "Episode",
             "reward_mode": "Reward",
+            "opponent": "Opponent",
             "score": "Score",
             "total_reward": "Total reward",
             "winner": "Winner",
@@ -148,9 +166,9 @@ class TrainingUI(tk.Tk):
             "episode_time": "Time(s)",
         }
         widths = {
-            "run": 55, "status": 95, "episode": 80, "reward_mode": 100, "score": 80,
-            "total_reward": 100, "winner": 80, "hp": 80, "steps": 75, "avg100": 80,
-            "loss": 85, "epsilon": 80, "episode_time": 80,
+            "run": 50, "status": 85, "episode": 75, "reward_mode": 95, "opponent": 90,
+            "score": 75, "total_reward": 95, "winner": 70, "hp": 70, "steps": 70,
+            "avg100": 75, "loss": 80, "epsilon": 75, "episode_time": 75,
         }
         for col in columns:
             self.progress.heading(col, text=headings[col])
@@ -170,6 +188,12 @@ class TrainingUI(tk.Tk):
         if path:
             self.resume.set(path)
 
+    def _browse_opponent_model(self) -> None:
+        path = filedialog.askopenfilename(filetypes=[("PyTorch checkpoint", "*.pth"), ("All files", "*.*")])
+        if path:
+            self.opponent_model.set(path)
+            self.opponent.set("model")
+
     def _browse_map(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Tank map JSON", "*.json"), ("All files", "*.*")])
         if path:
@@ -188,6 +212,10 @@ class TrainingUI(tk.Tk):
     def start_training(self) -> None:
         if any(process.poll() is None for process in self.processes.values()):
             messagebox.showwarning("Training running", "At least one training process is already running.")
+            return
+
+        if self.opponent.get() == "model" and not self.opponent_model.get().strip():
+            messagebox.showerror("Missing opponent model", "Please select an opponent model checkpoint when opponent=model.")
             return
 
         try:
@@ -231,11 +259,16 @@ class TrainingUI(tk.Tk):
             "--render-every", self.render_every.get(),
             "--save-every", self.save_every.get(),
             "--reward", self.reward.get(),
+            "--opponent", self.opponent.get(),
             "--checkpoint", checkpoint,
             "--speed", self.speed.get(),
         ]
         if self.resume.get().strip():
             cmd.extend(["--resume", self.resume.get().strip()])
+        if self.opponent_model.get().strip():
+            cmd.extend(["--opponent-model", self.opponent_model.get().strip()])
+        if not self.train_both_sides.get():
+            cmd.append("--no-train-both-sides")
         if self.map_path.get().strip():
             cmd.extend(["--map", self.map_path.get().strip()])
         if csv_path:
@@ -273,7 +306,7 @@ class TrainingUI(tk.Tk):
         text.insert("end", "Running: " + " ".join(cmd) + "\n\n")
         self.progress.insert(
             "", "end", iid=str(run_id),
-            values=(run_id, "Starting", "-", self.reward.get(), "-", "-", "-", "-", "-", "-", "-", "-", "-"),
+            values=(run_id, "Starting", "-", self.reward.get(), self.opponent.get(), "-", "-", "-", "-", "-", "-", "-", "-", "-"),
         )
 
     def _stream_output(self, run_id: int, process: subprocess.Popen) -> None:
@@ -302,6 +335,7 @@ class TrainingUI(tk.Tk):
             "Running",
             data["episode"],
             self.reward.get(),
+            data["opponent"],
             data["score"],
             data["total_reward"],
             data["winner"],

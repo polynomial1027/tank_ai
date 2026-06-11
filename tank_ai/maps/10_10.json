@@ -1,0 +1,14 @@
+{
+  "name": "custom_map",
+  "cols": 10,
+  "rows": 10,
+  "p1_spawn": [
+    0,
+    0
+  ],
+  "p2_spawn": [
+    9,
+    9
+  ],
+  "walls": []
+}
